@@ -1,0 +1,64 @@
+// TypeScript interfaces for all API responses
+// These mirror the Pydantic schemas in main.py / optimizer.py
+
+export interface AssetWeight {
+    ticker: string;
+    weight: number;
+    dollarValue: number;
+}
+
+export interface OptimizationResult {
+    weights: Record<string, number>;
+    expected_return: number;
+    volatility: number;
+    sharpe_ratio: number;
+    strategy: "Conservative" | "Balanced" | "Aggressive";
+}
+
+export interface FrontierPoint {
+    return: number;
+    volatility: number;
+}
+
+export interface VaRMetrics {
+    daily_var: number;
+    annual_var: number;
+    confidence: number;
+}
+
+export interface BacktestResult {
+    dates: string[];
+    portfolio_values: number[];
+    benchmark_values: number[];
+    portfolio_total_return: number;
+    benchmark_total_return: number;
+    portfolio_cagr: number;
+    benchmark_cagr: number;
+}
+
+export interface PortfolioData {
+    valid_tickers: string[];
+    optimization: OptimizationResult;
+    efficient_frontier: FrontierPoint[];
+    var: VaRMetrics;
+    backtest: BacktestResult;
+    investment: number;
+    risk_tolerance: number;
+}
+
+export interface ApiResponse {
+    success: boolean;
+    data: PortfolioData;
+}
+
+export interface PortfolioRequest {
+    tickers: string[];
+    investment: number;
+    risk_tolerance: number;
+    time_horizon_years: number;
+    excluded_sectors?: string[];
+}
+
+export interface TickerUniverse {
+    universe: Record<string, string[]>;
+}
