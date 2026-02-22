@@ -23,6 +23,9 @@ export const portfolioApi = {
             body: JSON.stringify(payload),
         }),
 
+    marketData: (tickers: string[]): Promise<{ tickers: Array<{ ticker: string; name: string; price: number; change_pct: number; volume?: number; market_cap?: number; pe_ratio?: number; sparkline?: number[] }> }> =>
+        apiFetch(`/api/market-data?tickers=${encodeURIComponent(tickers.join(","))}`),
+
     suggestTickers: (sector?: string): Promise<TickerUniverse> =>
         apiFetch<TickerUniverse>(
             `/api/tickers/suggest${sector ? `?sector=${sector}` : ""}`

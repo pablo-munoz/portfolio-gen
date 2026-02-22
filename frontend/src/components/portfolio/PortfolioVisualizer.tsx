@@ -151,9 +151,10 @@ const BacktestTooltip = ({ active, payload, label }: any) => {
 
 interface BacktestChartProps {
     backtest: PortfolioData["backtest"];
+    investment: number;
 }
 
-export function BacktestChart({ backtest }: BacktestChartProps) {
+export function BacktestChart({ backtest, investment }: BacktestChartProps) {
     // Downsample to ~120 points for performance
     const step = Math.max(1, Math.floor(backtest.dates.length / 120));
     const chartData = backtest.dates
@@ -171,6 +172,11 @@ export function BacktestChart({ backtest }: BacktestChartProps) {
     return (
         <div className="flex flex-col gap-4">
             {/* Performance summary */}
+            {backtest.total_invested != null && backtest.total_invested > investment && (
+                <p className="text-xs" style={{ color: "var(--text-muted)", marginBottom: 4 }}>
+                    Total invested: {formatCurrency(backtest.total_invested)} (initial {formatCurrency(investment)} + {formatCurrency(backtest.total_invested - investment)} in DCA)
+                </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
                 {[
                     {
@@ -243,7 +249,7 @@ export function BacktestChart({ backtest }: BacktestChartProps) {
                     />
                     <Tooltip content={<BacktestTooltip />} />
                     <ReferenceLine
-                        y={100_000}
+                        y={investment}
                         stroke="var(--border-default)"
                         strokeDasharray="4 4"
                     />

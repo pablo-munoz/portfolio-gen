@@ -34,6 +34,33 @@ export interface BacktestResult {
     benchmark_total_return: number;
     portfolio_cagr: number;
     benchmark_cagr: number;
+    monthly_contribution?: number;
+    total_invested?: number;
+    max_drawdown_pct?: number;
+    drawdown_values?: number[];
+}
+
+export interface RiskDetails {
+    correlation_matrix?: Record<string, Record<string, number>>;
+    contribution_to_risk?: { ticker: string; contribution: number }[];
+    stress_test?: {
+        crash_scenario_pct: number;
+        portfolio_return_crash: number;
+        value_before: number;
+        value_after: number;
+        loss_usd: number;
+    };
+}
+
+export interface MarketTicker {
+    ticker: string;
+    name: string;
+    price: number;
+    change_pct: number;
+    volume?: number;
+    market_cap?: number;
+    pe_ratio?: number;
+    sparkline?: number[];
 }
 
 export interface PortfolioData {
@@ -44,6 +71,16 @@ export interface PortfolioData {
     backtest: BacktestResult;
     investment: number;
     risk_tolerance: number;
+    monthly_contribution?: number;
+    correlation_matrix?: Record<string, Record<string, number>>;
+    contribution_to_risk?: { ticker: string; contribution: number }[];
+    stress_test?: {
+        crash_scenario_pct: number;
+        portfolio_return_crash: number;
+        value_before: number;
+        value_after: number;
+        loss_usd: number;
+    };
 }
 
 export interface ApiResponse {
@@ -57,6 +94,7 @@ export interface PortfolioRequest {
     risk_tolerance: number;
     time_horizon_years: number;
     excluded_sectors?: string[];
+    monthly_contribution?: number;
 }
 
 export interface TickerUniverse {

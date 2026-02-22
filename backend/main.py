@@ -15,7 +15,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from optimizer import generate_portfolio
+from optimizer import (
+    generate_portfolio,
+    fetch_price_history,
+    estimate_parameters,
+    compute_efficient_frontier,
+    run_backtest,
+    compute_correlation_matrix,
+    compute_contribution_to_risk,
+    stress_test,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -61,9 +70,15 @@ class PortfolioRequest(BaseModel):
     )
     investment: float = Field(
         default=100_000.0,
-        ge=1_000,
+        ge=100,
         le=1_000_000_000,
         description="Investment amount in USD",
+    )
+    monthly_contribution: float | None = Field(
+        default=0,
+        ge=0,
+        le=1_000_000,
+        description="Optional monthly reinvestment in USD (0 = buy-and-hold only)",
     )
     risk_tolerance: float = Field(
         default=0.5,
@@ -136,6 +151,7 @@ async def optimize(request: PortfolioRequest) -> dict[str, Any]:
             investment=request.investment,
             risk_tolerance=request.risk_tolerance,
             time_horizon_years=request.time_horizon_years,
+            monthly_contribution=request.monthly_contribution or 0,
         )
         return {"success": True, "data": result}
 
@@ -149,6 +165,114 @@ async def optimize(request: PortfolioRequest) -> dict[str, Any]:
             status_code=500,
             detail=f"Optimization failed: {exc}. Check ticker symbols and try again.",
         ) from exc
+
+
+@app.get("/api/frontier", tags=["Portfolio"])
+async def get_frontier(
+    tickers: str,
+    time_horizon_years: int = 5,
+) -> dict[str, Any]:
+    """Return efficient frontier points for plotting."""
+    symbol_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if len(symbol_list) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 tickers required")
+    try:
+        years = max(time_horizon_years, 3)
+        prices = fetch_price_history(symbol_list, years=years)
+        mu, sigma = estimate_parameters(prices)
+        frontier = compute_efficient_frontier(mu, sigma, n_points=50)
+        return {"frontier": frontier}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/backtest", tags=["Portfolio"])
+async def get_backtest(
+    tickers: str,
+    investment: float = 100_000.0,
+    monthly_contribution: float = 0.0,
+    time_horizon_years: int = 5,
+) -> dict[str, Any]:
+    """Return historical backtest data."""
+    symbol_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if len(symbol_list) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 tickers required")
+    try:
+        result = generate_portfolio(
+            tickers=symbol_list,
+            investment=investment,
+            risk_tolerance=0.5,
+            time_horizon_years=time_horizon_years,
+            monthly_contribution=monthly_contribution,
+        )
+        return {"backtest": result["backtest"], "investment": result["investment"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/risk-details", tags=["Portfolio"])
+async def get_risk_details(
+    tickers: str,
+    investment: float = 100_000.0,
+    time_horizon_years: int = 5,
+) -> dict[str, Any]:
+    """Return correlation matrix, contribution to risk, stress test."""
+    symbol_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if len(symbol_list) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 tickers required")
+    try:
+        result = generate_portfolio(
+            tickers=symbol_list,
+            investment=investment,
+            risk_tolerance=0.5,
+            time_horizon_years=time_horizon_years,
+        )
+        return {
+            "correlation_matrix": result.get("correlation_matrix", {}),
+            "contribution_to_risk": result.get("contribution_to_risk", []),
+            "stress_test": result.get("stress_test", {}),
+            "var": result.get("var", {}),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/market-data", tags=["Market"])
+async def market_data(tickers: str) -> dict[str, Any]:
+    """
+    Fetch live market data for a comma-separated list of tickers.
+    Returns price, change %, volume, market cap, PE for each ticker.
+    """
+    import yfinance as yf
+
+    symbol_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not symbol_list:
+        return {"tickers": []}
+
+    result: list[dict[str, Any]] = []
+    for sym in symbol_list[:20]:  # cap at 20
+        try:
+            t = yf.Ticker(sym)
+            info = t.info
+            hist = t.history(period="7d")
+            price = info.get("currentPrice") or info.get("regularMarketPrice") or (float(hist["Close"].iloc[-1]) if not hist.empty else 0)
+            prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else price
+            change_pct = ((price - prev) / prev * 100) if prev and prev != 0 else 0
+            sparkline = hist["Close"].tolist() if not hist.empty else []
+            result.append({
+                "ticker": sym,
+                "name": info.get("shortName", sym),
+                "price": round(price, 2),
+                "change_pct": round(change_pct, 2),
+                "volume": info.get("volume"),
+                "market_cap": info.get("marketCap"),
+                "pe_ratio": info.get("trailingPE"),
+                "sparkline": [round(float(x), 2) for x in sparkline[-20:]],
+            })
+        except Exception:
+            continue
+
+    return {"tickers": result}
 
 
 @app.get("/api/tickers/suggest", tags=["Portfolio"])

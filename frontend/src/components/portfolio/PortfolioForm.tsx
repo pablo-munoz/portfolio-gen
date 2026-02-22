@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     AlertCircle,
     ChevronDown,
@@ -8,6 +8,7 @@ import {
     DollarSign,
     Loader2,
     Plus,
+    Repeat,
     Search,
     Send,
     X,
@@ -36,15 +37,25 @@ interface PortfolioFormProps {
     onSubmit: (request: PortfolioRequest) => void;
     isLoading: boolean;
     error?: string | null;
+    mergeTickers?: string[];
+    onMergeComplete?: () => void;
 }
 
-export function PortfolioForm({ onSubmit, isLoading, error }: PortfolioFormProps) {
+export function PortfolioForm({ onSubmit, isLoading, error, mergeTickers, onMergeComplete }: PortfolioFormProps) {
     const [investment, setInvestment] = useState<string>("100000");
+    const [monthlyContribution, setMonthlyContribution] = useState<string>("");
     const [riskTolerance, setRiskTolerance] = useState<number>(0.5);
     const [timeHorizon, setTimeHorizon] = useState<number>(5);
     const [selectedTickers, setSelectedTickers] = useState<string[]>([
         "AAPL", "MSFT", "GOOGL", "NVDA", "JPM", "JNJ", "AMZN",
     ]);
+
+    useEffect(() => {
+        if (mergeTickers?.length) {
+            setSelectedTickers((prev) => [...new Set([...prev, ...mergeTickers])]);
+            onMergeComplete?.();
+        }
+    }, [mergeTickers?.join(",")]);
     const [customTicker, setCustomTicker] = useState<string>("");
     const [openSector, setOpenSector] = useState<string | null>("Technology");
 
@@ -67,12 +78,16 @@ export function PortfolioForm({ onSubmit, isLoading, error }: PortfolioFormProps
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const inv = parseFloat(investment.replace(/,/g, ""));
-        if (isNaN(inv) || inv < 1000 || selectedTickers.length < 2) return;
+        const monthly = monthlyContribution.trim()
+            ? parseFloat(monthlyContribution.replace(/,/g, ""))
+            : 0;
+        if (isNaN(inv) || inv < 100 || selectedTickers.length < 2) return;
         onSubmit({
             tickers: selectedTickers,
             investment: inv,
             risk_tolerance: riskTolerance,
             time_horizon_years: timeHorizon,
+            monthly_contribution: isNaN(monthly) || monthly < 0 ? 0 : monthly,
         });
     };
 
@@ -117,15 +132,58 @@ export function PortfolioForm({ onSubmit, isLoading, error }: PortfolioFormProps
                         style={{ paddingLeft: "2.25rem", fontSize: "1rem", fontFamily: "'JetBrains Mono', monospace" }}
                         value={investment}
                         onChange={(e) => setInvestment(e.target.value)}
-                        min={1000}
+                        min={100}
                         max={1_000_000_000}
-                        step={1000}
+                        step={100}
                         placeholder="100,000"
                         required
                     />
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Minimum $1,000 · Maximum $1B
+                    Minimum $100 · Maximum $1B
+                </p>
+            </div>
+
+            {/* ── Monthly Reinvestment (optional) ────────── */}
+            <div className="flex flex-col gap-2">
+                <label
+                    htmlFor="monthly-contribution"
+                    className="text-sm font-semibold flex items-center gap-2"
+                    style={{ color: "var(--text-secondary)" }}
+                >
+                    <Repeat size={14} style={{ color: "var(--text-muted)" }} />
+                    Monthly Reinvestment
+                    <span
+                        className="text-xs font-normal px-1.5 py-0.5 rounded"
+                        style={{
+                            background: "var(--bg-panel)",
+                            color: "var(--text-muted)",
+                            border: "1px solid var(--border-subtle)",
+                        }}
+                    >
+                        optional
+                    </span>
+                </label>
+                <div className="relative">
+                    <DollarSign
+                        size={15}
+                        className="absolute left-3.5 top-1/2 -translate-y-1/2"
+                        style={{ color: "var(--text-muted)" }}
+                    />
+                    <input
+                        id="monthly-contribution"
+                        type="number"
+                        className="input"
+                        style={{ paddingLeft: "2.25rem", fontSize: "1rem", fontFamily: "'JetBrains Mono', monospace" }}
+                        value={monthlyContribution}
+                        onChange={(e) => setMonthlyContribution(e.target.value)}
+                        min={0}
+                        step={50}
+                        placeholder="0 (buy-and-hold only)"
+                    />
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Add $X per month to simulate DCA. Leave empty for buy-and-hold.
                 </p>
             </div>
 

@@ -279,6 +279,76 @@ def compute_efficient_frontier(
     return frontier
 
 
+def get_min_variance_point(
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+) -> dict[str, float]:
+    """Return the minimum-variance portfolio point."""
+    try:
+        ef = EfficientFrontier(mu, sigma, weight_bounds=(0, 1))
+        ef.min_volatility()
+        ret, vol, _ = ef.portfolio_performance(verbose=False)
+        return {"return": round(ret, 6), "volatility": round(vol, 6)}
+    except Exception:
+        return {"return": 0.0, "volatility": 0.0}
+
+
+# ---------------------------------------------------------------------------
+# Risk Details: Correlation, Contribution to Risk, Stress Test
+# ---------------------------------------------------------------------------
+
+
+def compute_correlation_matrix(prices: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """Compute correlation matrix of asset returns."""
+    returns = prices.pct_change().dropna()
+    corr = returns.corr()
+    return {str(i): {str(j): round(float(corr.loc[i, j]), 4) for j in corr.columns} for i in corr.index}
+
+
+def compute_contribution_to_risk(
+    prices: pd.DataFrame,
+    weights: dict[str, float],
+) -> list[dict[str, float]]:
+    """Marginal contribution to risk per asset (percent of portfolio vol)."""
+    returns = prices.pct_change().dropna()
+    cov = returns.cov() * TRADING_DAYS  # annualized
+    w_arr = np.array([weights.get(t, 0) for t in returns.columns if t in weights])
+    tickers = [t for t in returns.columns if t in weights]
+    if len(tickers) < 2:
+        return [{"ticker": t, "contribution": 100.0} for t in tickers]
+    cov_sub = cov.loc[tickers, tickers].values
+    port_var = float(w_arr @ cov_sub @ w_arr)
+    port_vol = np.sqrt(port_var) if port_var > 0 else 1e-8
+    marginal = cov_sub @ w_arr
+    contrib = (w_arr * marginal) / port_vol**2 * 100 if port_vol > 0 else np.zeros(len(tickers))
+    return [{"ticker": t, "contribution": round(float(c), 2)} for t, c in zip(tickers, contrib)]
+
+
+def stress_test(
+    weights: dict[str, float],
+    prices: pd.DataFrame,
+    investment: float,
+    crash_pct: float = -0.20,
+) -> dict[str, Any]:
+    """Simulate portfolio impact of a market crash (e.g. -20%)."""
+    returns = prices.pct_change().dropna()
+    cov = returns.cov() * TRADING_DAYS
+    tickers = [t for t in returns.columns if t in weights]
+    w_arr = np.array([weights[t] for t in tickers])
+    # Assume all assets drop by crash_pct (simplified correlation = 1)
+    # More realistic: use Cholesky with scenario
+    port_return_crash = float(np.sum(w_arr) * crash_pct)
+    value_after = investment * (1 + port_return_crash)
+    # Alternative: assume partial correlation (e.g. 0.8)
+    return {
+        "crash_scenario_pct": round(crash_pct * 100, 1),
+        "portfolio_return_crash": round(port_return_crash * 100, 2),
+        "value_before": round(investment, 2),
+        "value_after": round(value_after, 2),
+        "loss_usd": round(investment - value_after, 2),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Value at Risk
 # ---------------------------------------------------------------------------
@@ -337,26 +407,17 @@ def run_backtest(
     weights: dict[str, float],
     benchmark_ticker: str = BENCHMARK_TICKER,
     investment: float = 100_000.0,
+    monthly_contribution: float = 0.0,
 ) -> dict[str, Any]:
     """
     Simulate the portfolio performance against a benchmark over the full
-    price history using a buy-and-hold strategy.
+    price history using buy-and-hold, optionally with monthly DCA.
 
-    Portfolio value at time t:
+    Portfolio value at time t (buy-and-hold):
         V(t) = investment · Π_{s=1}^{t} (1 + rₛ)
 
-    where rₛ = wᵀ · rₛ_assets (daily log-return vector).
-
-    Returns
-    -------
-    dict
-        dates               : list[str]
-        portfolio_values    : list[float]
-        benchmark_values    : list[float]
-        portfolio_total_return : float
-        benchmark_total_return : float
-        portfolio_cagr      : float
-        benchmark_cagr      : float
+    With monthly_contribution: add contribution at start of each month, then
+    apply daily returns. New money participates in returns from that day onward.
     """
     # Filter prices to only include tickers in optimized weights
     held_tickers = [t for t in weights if t in prices.columns]
@@ -383,25 +444,56 @@ def run_backtest(
     bench_returns = bench_prices.pct_change().fillna(0).values
 
     # Cumulative returns → portfolio values
-    port_cum = investment * np.cumprod(1 + port_daily_returns)
+    if monthly_contribution <= 0:
+        port_cum = investment * np.cumprod(1 + port_daily_returns)
+    else:
+        # DCA: add monthly contribution at start of each new month
+        port_cum = np.zeros(len(port_daily_returns))
+        V = investment
+        current_month = port_returns.index[0].month
+        for i in range(len(port_daily_returns)):
+            m = port_returns.index[i].month
+            if i > 0 and m != current_month:
+                V += monthly_contribution
+            current_month = m
+            V = V * (1 + port_daily_returns[i])
+            port_cum[i] = V
+
     bench_cum = investment * np.cumprod(1 + bench_returns)
 
     dates = [d.strftime("%Y-%m-%d") for d in port_returns.index]
     n_years = len(dates) / TRADING_DAYS
 
-    def cagr(values: np.ndarray) -> float:
-        if values[0] == 0:
+    def cagr(values: np.ndarray, principal: float) -> float:
+        if principal <= 0:
             return 0.0
-        return float((values[-1] / investment) ** (1 / n_years) - 1)
+        return float((values[-1] / principal) ** (1 / n_years) - 1)
+
+    # Total invested (for DCA: initial + contributions at start of months 2, 3, ...)
+    if monthly_contribution > 0:
+        n_months = len(port_returns.index.to_period("M").unique())
+        total_invested = investment + monthly_contribution * max(0, n_months - 1)
+    else:
+        total_invested = investment
+
+    # Drawdown: peak-to-trough decline
+    peak = np.maximum.accumulate(port_cum)
+    drawdown = (port_cum - peak) / np.where(peak > 0, peak, 1)
+    max_dd = float(np.min(drawdown))
+    max_dd_pct = round(max_dd * 100, 2)
 
     return {
         "dates": dates,
         "portfolio_values": [round(v, 2) for v in port_cum.tolist()],
         "benchmark_values": [round(v, 2) for v in bench_cum.tolist()],
-        "portfolio_total_return": round((port_cum[-1] / investment - 1), 6),
+        "portfolio_total_return": round((port_cum[-1] / total_invested - 1), 6) if total_invested > 0 else 0,
         "benchmark_total_return": round((bench_cum[-1] / investment - 1), 6),
-        "portfolio_cagr": round(cagr(port_cum), 6),
-        "benchmark_cagr": round(cagr(bench_cum), 6),
+        "portfolio_cagr": round(cagr(port_cum, total_invested), 6),
+        "benchmark_cagr": round(cagr(bench_cum, investment), 6),
+        "monthly_contribution": monthly_contribution,
+        "total_invested": round(total_invested, 2),
+        "max_drawdown_pct": max_dd_pct,
+        "drawdown_values": [round(float(d) * 100, 2) for d in drawdown.tolist()],
     }
 
 
@@ -414,6 +506,7 @@ def generate_portfolio(
     investment: float = 100_000.0,
     risk_tolerance: float = 0.5,
     time_horizon_years: int = 5,
+    monthly_contribution: float = 0.0,
 ) -> dict[str, Any]:
     """
     End-to-end portfolio generation pipeline.
@@ -451,7 +544,17 @@ def generate_portfolio(
         opt_result["volatility"],
         investment=investment,
     )
-    backtest = run_backtest(prices, opt_result["weights"], investment=investment)
+    backtest = run_backtest(
+        prices,
+        opt_result["weights"],
+        investment=investment,
+        monthly_contribution=monthly_contribution,
+    )
+
+    # Risk details for /risk page
+    correlation = compute_correlation_matrix(prices)
+    contribution_to_risk = compute_contribution_to_risk(prices, opt_result["weights"])
+    stress = stress_test(opt_result["weights"], prices, investment, crash_pct=-0.20)
 
     return {
         "valid_tickers": valid_tickers,
@@ -461,4 +564,8 @@ def generate_portfolio(
         "backtest": backtest,
         "investment": investment,
         "risk_tolerance": risk_tolerance,
+        "monthly_contribution": monthly_contribution,
+        "correlation_matrix": correlation,
+        "contribution_to_risk": contribution_to_risk,
+        "stress_test": stress,
     }

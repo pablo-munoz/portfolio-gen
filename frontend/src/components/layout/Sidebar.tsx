@@ -1,25 +1,27 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
     BarChart3,
     BrainCircuit,
     ChevronRight,
-    Layers,
     LineChart,
     Settings,
     Shield,
     TrendingUp,
     Wallet,
     Zap,
+    Layers,
 } from "lucide-react";
 
 const NAV_ITEMS = [
-    { icon: TrendingUp, label: "Dashboard", active: true },
-    { icon: BarChart3, label: "Portfolio Builder", active: false },
-    { icon: LineChart, label: "Efficient Frontier", active: false },
-    { icon: Shield, label: "Risk Analysis", active: false },
-    { icon: Layers, label: "Backtesting", active: false },
-    { icon: Wallet, label: "Watchlist", active: false },
+    { href: "/dashboard", icon: TrendingUp, label: "Dashboard" },
+    { href: "/builder", icon: BarChart3, label: "Portfolio Builder" },
+    { href: "/frontier", icon: LineChart, label: "Efficient Frontier" },
+    { href: "/risk", icon: Shield, label: "Risk Analysis" },
+    { href: "/backtesting", icon: Layers, label: "Backtesting" },
+    { href: "/watchlist", icon: Wallet, label: "Watchlist" },
 ];
 
 const MARKET_STATS = [
@@ -29,14 +31,12 @@ const MARKET_STATS = [
 ];
 
 export function Sidebar() {
+    const pathname = usePathname();
+
     return (
         <aside className="sidebar">
-            {/* ── Logo ─────────────────────────────── */}
-            <div
-                className="px-6 py-5"
-                style={{ borderBottom: "1px solid var(--border-subtle)" }}
-            >
-                <div className="flex items-center gap-3">
+            <div className="px-6 py-5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                <Link href="/dashboard" className="flex items-center gap-3 no-underline">
                     <div
                         className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
                         style={{
@@ -47,20 +47,16 @@ export function Sidebar() {
                         <BrainCircuit size={18} className="text-white" />
                     </div>
                     <div>
-                        <p
-                            className="font-bold tracking-widest text-xs uppercase"
-                            style={{ color: "var(--text-primary)", letterSpacing: "0.12em" }}
-                        >
+                        <p className="font-bold tracking-widest text-xs uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.12em" }}>
                             ARES
                         </p>
                         <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
                             Portfolio Engine v1.0
                         </p>
                     </div>
-                </div>
+                </Link>
             </div>
 
-            {/* ── Live markets ─────────────────────── */}
             <div className="px-6 py-3 flex items-center gap-2.5">
                 <div className="dot-live" />
                 <span className="text-xs font-semibold" style={{ color: "var(--accent-emerald)" }}>
@@ -80,32 +76,35 @@ export function Sidebar() {
 
             <div className="divider mx-5" />
 
-            {/* ── Navigation ───────────────────────── */}
             <div className="px-4 pt-1 pb-2">
-                <p
-                    className="px-2 mb-2 text-xs font-bold uppercase tracking-widest"
-                    style={{ color: "var(--text-muted)", letterSpacing: "0.1em" }}
-                >
+                <p className="px-2 mb-2 text-xs font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)", letterSpacing: "0.1em" }}>
                     Navigation
                 </p>
                 <nav className="flex flex-col gap-1">
-                    {NAV_ITEMS.map(({ icon: Icon, label, active }) => (
-                        <div key={label} className={`sidebar-item ${active ? "active" : ""}`}>
-                            <Icon size={16} style={{ flexShrink: 0 }} />
-                            <span>{label}</span>
-                            {active && (
-                                <ChevronRight
-                                    size={13}
-                                    className="ml-auto opacity-40"
-                                    style={{ color: "var(--accent-secondary)" }}
-                                />
-                            )}
-                        </div>
-                    ))}
+                    {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
+                        const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+                        return (
+                            <Link
+                                key={href}
+                                href={href}
+                                className={`sidebar-item ${active ? "active" : ""}`}
+                                style={{ textDecoration: "none" }}
+                            >
+                                <Icon size={16} style={{ flexShrink: 0 }} />
+                                <span>{label}</span>
+                                {active && (
+                                    <ChevronRight
+                                        size={13}
+                                        className="ml-auto opacity-40"
+                                        style={{ color: "var(--accent-secondary)" }}
+                                    />
+                                )}
+                            </Link>
+                        );
+                    })}
                 </nav>
             </div>
 
-            {/* ── Quick Stats ──────────────────────── */}
             <div className="mx-4 mt-2">
                 <div
                     className="p-4 rounded-xl"
@@ -114,34 +113,19 @@ export function Sidebar() {
                         border: "1px solid var(--border-subtle)",
                     }}
                 >
-                    <p
-                        className="text-xs font-bold uppercase tracking-wider mb-3"
-                        style={{ color: "var(--text-muted)", letterSpacing: "0.09em" }}
-                    >
+                    <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)", letterSpacing: "0.09em" }}>
                         Market Snapshot
                     </p>
                     <div className="flex flex-col gap-3">
                         {MARKET_STATS.map(({ label, ticker, change, up }) => (
                             <div key={label} className="flex items-center justify-between">
                                 <div>
-                                    <p
-                                        className="text-sm font-semibold"
-                                        style={{ color: "var(--text-primary)" }}
-                                    >
-                                        {label}
-                                    </p>
-                                    <p
-                                        className="text-xs mono"
-                                        style={{ color: "var(--text-muted)" }}
-                                    >
-                                        {ticker}
-                                    </p>
+                                    <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{label}</p>
+                                    <p className="text-xs mono" style={{ color: "var(--text-muted)" }}>{ticker}</p>
                                 </div>
                                 <span
                                     className="text-sm font-bold mono"
-                                    style={{
-                                        color: up ? "var(--accent-emerald)" : "var(--accent-rose)",
-                                    }}
+                                    style={{ color: up ? "var(--accent-emerald)" : "var(--accent-rose)" }}
                                 >
                                     {change}
                                 </span>
@@ -151,10 +135,8 @@ export function Sidebar() {
                 </div>
             </div>
 
-            {/* ── Spacer ───────────────────────────── */}
             <div className="flex-1" />
 
-            {/* ── Bottom ───────────────────────────── */}
             <div className="divider mx-5" />
             <div className="px-4 pb-5">
                 <div className="sidebar-item">
